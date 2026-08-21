@@ -1,0 +1,4 @@
+{
+    "image": "cr.yandex/yc/swse-submit-yandex-ml:latest",
+    "entrypoint": "python3 submission/run.py"
+}
