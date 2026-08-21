@@ -221,3 +221,11 @@ __marimo__/
 data/
 submission/weights/
 submission/src/
+
+# Archives
+*.zip
+*.tar.gz
+
+# IDE
+.vscode/
+.idea/
