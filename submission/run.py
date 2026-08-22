@@ -128,32 +128,25 @@ def build_embeddings(encoder, items):
 
 def build_features(items, matches, embeddings):
     """
-    build_pair_features(product_a, product_b) работает на паре товаров,
-    поэтому здесь для каждой строки matches собираем product_a/product_b
-    (данные товара + его эмбеддинг) и зовём build_pair_features построчно.
+    Собирает парный DataFrame с суффиксами _1/_2 и одним батчевым вызовом
+    build_pair_features() получает матрицу фичей (см. src/feature_builder.py).
 
     matches на инференсе содержит только id1/id2 (без target — target есть
     только в обучающих matches.parquet/matches_llm.parquet).
 
-    ВНИМАНИЕ (производительность): для 275k пар чистый python-цикл с
-    Левенштейном внутри build_pair_features может оказаться узким местом
-    под 13-минутный лимит — когда build_pair_features будет реализована,
-    стоит замерить её отдельно на benchmark_inference.py и при необходимости
-    векторизовать (например, cosine — матричным умножением заранее, а не
-    внутри цикла на пару).
+    ПРИМЕЧАНИЕ: в items.parquet нет полей brand/price (бренд зашит в
+    attributes JSON), поэтому brand_match вернёт 0, а price_diff/price_ratio
+    — NaN, пока не появится парсер attributes. Эмбеддинги сейчас фичами
+    не используются, но расчёт оставлен для следующих итераций.
     """
     items_indexed = items.set_index("id")
 
-    records = []
-    for id1, id2 in zip(matches["id1"], matches["id2"]):
-        product_a = items_indexed.loc[id1].to_dict()
-        product_a["embedding"] = embeddings[id1]
-        product_b = items_indexed.loc[id2].to_dict()
-        product_b["embedding"] = embeddings[id2]
+    feature_cols = [c for c in ("name", "brand", "category", "price") if c in items.columns]
+    left = items_indexed.loc[matches["id1"], feature_cols].reset_index(drop=True)
+    right = items_indexed.loc[matches["id2"], feature_cols].reset_index(drop=True)
 
-        records.append(build_pair_features(product_a, product_b))
-
-    return pd.DataFrame(records)
+    pairs = pd.concat([left.add_suffix("_1"), right.add_suffix("_2")], axis=1)
+    return build_pair_features(pairs)
 
 
 def predict(classifier, features):
