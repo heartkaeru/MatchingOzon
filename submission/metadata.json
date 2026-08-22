@@ -1,4 +1,4 @@
 {
-    "image": "cr.yandex/yc/swse-submit-yandex-ml:latest",
-    "entrypoint": "python3 submission/run.py"
+  "image": "rhubarbbb/ecup26-matching:1.0",
+  "entry_point": "python -u run.py"
 }
