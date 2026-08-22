@@ -1,1 +1,3 @@
-"""\nSource code package for MatchingOzon.\n"""\n
+"""
+Source code package for MatchingOzon.
+"""
