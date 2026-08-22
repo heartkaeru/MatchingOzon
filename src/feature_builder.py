@@ -1,12 +1,20 @@
 """
-Feature extraction for product pairs (cosine, levenshtein, price difference).
+Извлечение признаков сходства для пар товаров (косинусное сходство, Левенштейн, совпадение атрибутов, чисел).
 """
 
-def build_pair_features(product_a, product_b):
+def build_pair_features(product_a: dict, product_b: dict) -> dict:
     """
-    Build similarity features for a pair of products.
+    Вычисляет набор признаков сходства и различий для пары товаров.
+    
+    Параметры:
+        product_a: словарь с данными первого товара (name, attributes, category, ...)
+        product_b: словарь с данными второго товара
+        
+    Возвращает:
+        features: словарь вычисленных признаков
     """
     features = {}
-    # TODO: Calculate text similarities (Levenshtein, Jaccard, Cosine)
-    # TODO: Calculate numeric differences (Price diff)
+    # TODO: Вычисление текстовых сходств (Левенштейн, Жаккар, косинусное сходство TF-IDF / Qwen)
+    # TODO: Вычисление различий в атрибутах (разница объемов, веса, совпадение артикулов и брендов)
     return features
+

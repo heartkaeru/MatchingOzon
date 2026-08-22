@@ -1,20 +1,23 @@
 """
-Text cleaning and regex extraction.
+Очистка текста и извлечение характеристик с помощью регулярных выражений (regex).
 """
 import re
 
+
 def clean_text(text: str) -> str:
     """
-    Clean input text (lowercasing, punctuation removal, etc.).
+    Базовая очистка текста (приведение к нижнему регистру, удаление лишних пробелов и символов).
     """
     if not isinstance(text, str):
         return ""
-    # TODO: Implement text cleaning
+    # TODO: Реализовать расширенную нормализацию текста (удаление спецсимволов, унификацию единиц измерения)
     return text.lower().strip()
+
 
 def extract_attributes(text: str) -> dict:
     """
-    Regex attribute extractor (volume, weight, quantity, etc.).
+    Извлечение числовых характеристик из текста (объем, вес, количество штук в упаковке, память и т.д.).
     """
-    # TODO: Implement attribute extraction (e.g. 500ml, 1kg)
+    # TODO: Реализовать regex-парсинг (например, 500мл, 1кг, 128gb, 2 шт)
     return {}
+

@@ -1,10 +1,11 @@
 """
-Feature extraction for training and validation sets.
+Извлечение признаков для обучающей и валидационной выборок.
 """
 
 def main():
-    # TODO: Load folds, extract pair features, and save processed datasets
+    # TODO: Загрузить фолды, извлечь признаки пар и сохранить предобработанные датасеты
     pass
 
 if __name__ == "__main__":
     main()
+

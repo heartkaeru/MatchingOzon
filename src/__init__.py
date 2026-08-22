@@ -1,1 +1,3 @@
-"""\nSource code package for MatchingOzon.\n"""\n
+"""
+Пакет исходного кода для решения задачи матчинга товаров (MatchingOzon).
+"""
