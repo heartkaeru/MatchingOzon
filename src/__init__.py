@@ -1,3 +1,3 @@
 """
-Пакет исходного кода для решения задачи матчинга товаров (MatchingOzon).
+Source code package for MatchingOzon.
 """
