@@ -1,10 +1,11 @@
 """
-Text cleaning and regex extraction.
+Очистка текста и извлечение характеристик с помощью регулярных выражений (regex).
 """
 import re
 import string
 
 import pandas as pd
+
 
 
 def clean_text(text: str) -> str:
@@ -58,11 +59,12 @@ def optimize_pandas_types(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+
 def extract_attributes(text: str) -> dict:
     """
-    Regex attribute extractor (volume, weight, quantity, etc.).
+    Извлечение числовых характеристик из текста (объем, вес, количество штук в упаковке, память и т.д.).
     """
-    # TODO: Implement attribute extraction (e.g. 500ml, 1kg)
+    # TODO: Реализовать regex-парсинг (например, 500мл, 1кг, 128gb, 2 шт)
     return {}
 
 
