@@ -1,7 +1,7 @@
 """
-Feature extraction for product pairs (TF-IDF similarity, brand/category match, price features).
+Извлечение признаков для пар товаров (TF-IDF сходство, совпадение брендов/категорий, признаки цен).
 
-Expected pair-dataset schema: columns suffixed _1 / _2 for each side of the pair
+Ожидаемая схема датасета пар: колонки с суффиксами _1 / _2 для каждой стороны пары
 (name_1/name_2, brand_1/brand_2, category_1/category_2, price_1/price_2).
 """
 import numpy as np
@@ -22,11 +22,11 @@ FEATURE_ORDER = [
 
 def compute_tfidf_similarity(df: pd.DataFrame, col1: str, col2: str) -> np.ndarray:
     """
-    Row-wise cosine similarity between text columns col1 and col2.
+    Построчное косинусное сходство между текстовыми колонками col1 и col2.
 
-    One TfidfVectorizer is fit on the concatenation of both columns so the
-    vocabulary (and IDF weights) are shared between the two sides of the pair.
-    Returns float32 array of shape (len(df),).
+    Один TfidfVectorizer обучается на объединении обеих колонок, чтобы словарь
+    (и веса IDF) были общими для обеих сторон пары.
+    Возвращает массив float32 размерности (len(df),).
     """
     texts1 = df[col1].apply(clean_text).astype(str)
     texts2 = df[col2].apply(clean_text).astype(str)
@@ -45,8 +45,8 @@ def compute_tfidf_similarity(df: pd.DataFrame, col1: str, col2: str) -> np.ndarr
 
 def _equality_match(df: pd.DataFrame, prefix: str) -> pd.Series:
     """
-    1 when both <prefix>_1 and <prefix>_2 are non-missing and equal
-    after lowercasing/stripping, else 0. Missing columns -> all 0.
+    1, когда оба поля <prefix>_1 и <prefix>_2 заполнены и равны
+    после приведения к нижнему регистру и очистки, иначе 0. Отсутствующие колонки -> все 0.
     """
     col1, col2 = f"{prefix}_1", f"{prefix}_2"
     if col1 not in df.columns or col2 not in df.columns:
@@ -61,9 +61,9 @@ def _equality_match(df: pd.DataFrame, prefix: str) -> pd.Series:
 
 def _price_features(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
     """
-    price_diff = |price_1 - price_2| (NaN preserved),
-    price_ratio = max/min with NaN for zero/missing prices.
-    Columns missing -> NaN series.
+    price_diff = |price_1 - price_2| (сохраняются NaN),
+    price_ratio = max/min с NaN для нулевых или пропущенных цен.
+    Если колонок нет -> серии из NaN.
     """
     nan_series = lambda: pd.Series(np.nan, index=df.index, dtype="float32")  # noqa: E731
 
@@ -85,15 +85,15 @@ def _price_features(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
 
 def build_pair_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Build the feature matrix for a dataset of product pairs.
+    Построение матрицы признаков для датасета пар товаров.
 
-    Output columns (fixed order):
-      tfidf_title_sim  - TF-IDF cosine similarity of titles
+    Выходные колонки (фиксированный порядок):
+      tfidf_title_sim  - TF-IDF косинусное сходство названий
                          (name_1/name_2, fallback title_1/title_2)
-      brand_match      - 1 if brands are both present and equal, else 0
-      category_match   - same logic as brand_match
-      price_diff       - |price_1 - price_2|, NaN preserved
-      price_ratio      - max(price)/min(price), NaN for zero/missing prices
+      brand_match      - 1, если бренды указаны и совпадают, иначе 0
+      category_match   - аналогичная логика для категорий
+      price_diff       - |price_1 - price_2|, NaN сохраняются
+      price_ratio      - max(price)/min(price), NaN для нулевых/пропущенных цен
     """
     title_col = None
     for base in ("name", "title"):
@@ -101,7 +101,7 @@ def build_pair_features(df: pd.DataFrame) -> pd.DataFrame:
             title_col = base
             break
     if title_col is None:
-        raise KeyError("expected name_1/name_2 or title_1/title_2 columns")
+        raise KeyError("Ожидались колонки name_1/name_2 или title_1/title_2")
 
     price_diff, price_ratio = _price_features(df)
 
@@ -136,28 +136,29 @@ if __name__ == "__main__":
     assert list(feats.columns) == FEATURE_ORDER
     assert len(feats) == len(sample)
 
-    # identical titles -> similarity close to 1; partial overlap ranks above no overlap
+    # одинаковые заголовки -> сходство близко к 1; частичное перекрытие выше нулевого
     assert abs(feats["tfidf_title_sim"].iloc[2] - 1.0) < 1e-5
     assert feats["tfidf_title_sim"].iloc[0] > feats["tfidf_title_sim"].iloc[1]
 
-    # brand: case/space-insensitive equality; missing brand -> 0
+    # бренд: совпадение без учета регистра/пробелов; пропущенный бренд -> 0
     assert feats["brand_match"].iloc[0] == 1
     assert feats["brand_match"].iloc[1] == 0
     assert feats["brand_match"].iloc[2] == 0
 
-    # category equality
+    # совпадение категорий
     assert feats["category_match"].iloc[0] == 1
     assert feats["category_match"].iloc[1] == 1
 
-    # price features incl. zero-price guard
+    # признаки цены, включая защиту от деления на 0
     assert np.isclose(feats["price_diff"].iloc[1], 25.5)
     assert np.isclose(feats["price_ratio"].iloc[1], 175.5 / 150.0)
     assert np.isnan(feats["price_ratio"].iloc[2])
 
-    # missing optional columns degrade gracefully
+    # отсутствие опциональных колонок обрабатывается корректно
     degraded = build_pair_features(sample[["name_1", "name_2"]])
     assert list(degraded.columns) == FEATURE_ORDER
     assert (degraded["brand_match"] == 0).all()
     assert degraded["price_diff"].isna().all()
 
-    print("all tests passed")
+    print("Все тесты успешно пройдены!")
+

@@ -18,14 +18,14 @@ def parse_args():
         "--batch-size",
         type=int,
         default=32,
-        help="Размер батча (default: 32)",
+        help="Размер батча (по умолчанию: 32)",
     )
     parser.add_argument(
         "--device",
         type=str,
         choices=["cpu", "cuda"],
         default=None,
-        help="Устройство инференса (default: автоопределение)",
+        help="Устройство инференса (по умолчанию: автоопределение)",
     )
     return parser.parse_args()
 
@@ -38,7 +38,7 @@ def resolve_device(requested):
 
         return "cuda" if torch.cuda.is_available() else "cpu"
     except ImportError:
-        print("[warn] torch не установлен, используется cpu")
+        print("[предупреждение] torch не установлен, используется cpu")
         return "cpu"
 
 
@@ -85,18 +85,18 @@ def report_memory(device):
 
 
 def print_report(results):
-    print("\n===== Benchmark Report =====")
+    print("\n===== Отчет о бенчмарке =====")
     for key, value in results.items():
         formatted = f"{value:.2f}" if isinstance(value, float) else str(value)
         print(f"{key:>15}: {formatted}")
-    print("============================")
+    print("=============================")
 
 
 def main():
     start = time.perf_counter()
     args = parse_args()
     device = resolve_device(args.device)
-    print(f"[info] device={device}, batch_size={args.batch_size}, data_path={args.data_path}")
+    print(f"[инфо] device={device}, batch_size={args.batch_size}, data_path={args.data_path}")
 
     results = {
         "device": device,
@@ -118,3 +118,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

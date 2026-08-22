@@ -7,14 +7,13 @@ import string
 import pandas as pd
 
 
-
 def clean_text(text: str) -> str:
     """
-    Clean input text: lowercase, ё -> е, remove special chars,
-    collapse whitespace.
+    Очистка входного текста: приведение к нижнему регистру, ё -> е,
+    удаление специальных символов, схлопывание пробелов.
 
-    Non-string input (NaN, None, numbers) -> "".
-    Keeps letters (Cyrillic + Latin), digits and single spaces only.
+    Нестроковый ввод (NaN, None, числа) -> "".
+    Сохраняет только буквы (кириллица + латиница), цифры и одиночные пробелы.
     """
     if not isinstance(text, str):
         return ""
@@ -28,11 +27,11 @@ def clean_text(text: str) -> str:
 
 def preprocess_dataframe(df: pd.DataFrame, text_cols: list) -> pd.DataFrame:
     """
-    For every column in text_cols create a cleaned copy named
-    f"{col}_clean" (via clean_text). Original columns stay untouched.
+    Для каждой колонки из text_cols создает очищенную копию с именем
+    f"{col}_clean" (через clean_text). Исходные колонки остаются без изменений.
 
-    Returns a new DataFrame; input is not modified.
-    Missing columns are skipped with no error.
+    Возвращает новый DataFrame; входной датафрейм не мутирует.
+    Отсутствующие колонки пропускаются без ошибок.
     """
     result = df.copy()
     for col in text_cols:
@@ -43,11 +42,11 @@ def preprocess_dataframe(df: pd.DataFrame, text_cols: list) -> pd.DataFrame:
 
 def optimize_pandas_types(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Downcast numeric dtypes to reduce memory:
+    Уменьшение разрядности числовых типов для экономии памяти:
       float64 -> float32
       int64   -> int32
 
-    Other dtypes are returned as-is. Returns a new DataFrame.
+    Остальные типы данных остаются без изменений. Возвращает новый DataFrame.
     """
     result = df.copy()
     float_cols = result.select_dtypes(include=["float64"]).columns
@@ -59,7 +58,6 @@ def optimize_pandas_types(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-
 def extract_attributes(text: str) -> dict:
     """
     Извлечение числовых характеристик из текста (объем, вес, количество штук в упаковке, память и т.д.).
@@ -69,20 +67,20 @@ def extract_attributes(text: str) -> dict:
 
 
 if __name__ == "__main__":
-    # lowercasing
+    # приведение к нижнему регистру
     assert clean_text("Кофе МОЛОТЫЙ") == "кофе молотый"
-    # е/е normalization
+    # нормализация ё/е
     assert clean_text("Ёлка 3Ёх") == "елка 3ех"
-    # punctuation / special chars removal
+    # удаление пунктуации и спецсимволов
     assert clean_text("Молоко, 3.2% — 1л!") == "молоко 3 2 1л"
-    # whitespace collapsing + strip
+    # схлопывание пробелов и strip
     assert clean_text("  чай\tзелёный\nлистовой ") == "чай зеленый листовой"
-    # non-string inputs
+    # нестроковый ввод
     assert clean_text(None) == ""
     assert clean_text(123) == ""
     assert clean_text("") == ""
 
-    # preprocess_dataframe
+    # предобработка датафрейма (preprocess_dataframe)
     sample = pd.DataFrame({"title": ["Сок ЯБЛОЧНЫЙ", None], "price": [1, 2]})
     processed = preprocess_dataframe(sample, ["title"])
     assert "title_clean" in processed.columns
@@ -90,7 +88,7 @@ if __name__ == "__main__":
     assert processed["title"].iloc[0] == "Сок ЯБЛОЧНЫЙ"
     assert pd.isna(processed["title"].iloc[1])
 
-    # optimize_pandas_types
+    # оптимизация типов данных (optimize_pandas_types)
     wide = pd.DataFrame(
         {"a": pd.array([1, 2], dtype="int64"), "b": pd.array([1.5, 2.5], dtype="float64")}
     )
@@ -98,4 +96,5 @@ if __name__ == "__main__":
     assert str(slim["a"].dtype) == "int32"
     assert str(slim["b"].dtype) == "float32"
 
-    print("all tests passed")
+    print("Все тесты успешно пройдены!")
+

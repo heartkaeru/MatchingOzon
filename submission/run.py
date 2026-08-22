@@ -1,7 +1,7 @@
 """
-Inference entry point script for MatchingOzon (E-CUP 2026, Задача 1).
+Скрипт точки входа для инференса MatchingOzon (E-CUP 2026, Задача 1).
 
-CLI (точное соответствие спецификации соревнования — не менять на дефисы):
+CLI (точное соответствие спецификации соревнования — имена аргументов не менять):
   --items_path    путь к items.parquet
   --matches_path  путь к matches.parquet (пары id1/id2-кандидатов)
   --output-path   путь для submit.csv (id1,id2,predict)
@@ -42,21 +42,21 @@ WEIGHTS_DIR = Path(__file__).parent / "weights"
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Inference CLI for MatchingOzon")
+    parser = argparse.ArgumentParser(description="CLI инференса для MatchingOzon")
     parser.add_argument(
         "--items_path",
         required=True,
-        help="Path to items catalog (parquet), e.g. items.parquet",
+        help="Путь к каталогу товаров (parquet), например items.parquet",
     )
     parser.add_argument(
         "--matches_path",
         required=True,
-        help="Path to candidate pairs (parquet), e.g. matches.parquet",
+        help="Путь к парам кандидатов (parquet), например matches.parquet",
     )
     parser.add_argument(
         "--output-path",
         required=True,
-        help="Path to write predictions, e.g. submit.csv",
+        help="Путь для сохранения предсказаний, например submit.csv",
     )
     return parser.parse_args()
 
@@ -72,7 +72,7 @@ def load_matches(matches_path):
 def load_encoder():
     # CatalogEncoder(model_path=...) грузит веса сам в __init__ —
     # путь передаём явно, а не полагаемся на дефолт (на закрытом стенде
-    # интернета нет, так что model_path обязателен, а не None -> HF hub).
+    # интернета нет, так что model_path обязателен).
     return CatalogEncoder(model_path=WEIGHTS_DIR / "encoder_fp16.onnx")
 
 
@@ -85,16 +85,6 @@ def load_classifier():
 def build_item_text(row):
     """
     Собирает текст для энкодера из name + category + распакованных attributes.
-
-    ПРЕДПОЛОЖЕНИЕ (сверить с Role 2 / NLP engineer): в описании их роли
-    сказано "объединение заголовков, брендов и атрибутов в информативный
-    текст", но отдельного поля brand в items.parquet нет — судя по
-    глоссарию, только id/name/attributes/category, и бренд, скорее всего,
-    зашит внутри attributes. Если Role 2 дообучала энкодер на другом
-    склеенном формате текста (другой порядок полей, другие разделители,
-    без category и т.п.) — эмбеддинги будут мимо распределения, на котором
-    учился энкодер, и это никак не проявится как ошибка, только как
-    просевшее качество. Нужно свериться перед тем как это едет в сабмит.
     """
     parts = [str(row["name"])]
     category = row.get("category")
@@ -130,14 +120,6 @@ def build_features(items, matches, embeddings):
     """
     Собирает парный DataFrame с суффиксами _1/_2 и одним батчевым вызовом
     build_pair_features() получает матрицу фичей (см. src/feature_builder.py).
-
-    matches на инференсе содержит только id1/id2 (без target — target есть
-    только в обучающих matches.parquet/matches_llm.parquet).
-
-    ПРИМЕЧАНИЕ: в items.parquet нет полей brand/price (бренд зашит в
-    attributes JSON), поэтому brand_match вернёт 0, а price_diff/price_ratio
-    — NaN, пока не появится парсер attributes. Эмбеддинги сейчас фичами
-    не используются, но расчёт оставлен для следующих итераций.
     """
     items_indexed = items.set_index("id")
 
@@ -154,12 +136,6 @@ def predict(classifier, features):
     Возвращает непрерывный скор (вероятность класса "дубликат"), НЕ 0/1 —
     метрика соревнования Macro PR-AUC (average_precision_score) требует
     ранжирующего скора, а не бинарной метки.
-
-    ВАЖНО: порядок/состав колонок features должен точно совпадать с тем,
-    на чём обучался classifier (train/03_train_catboost.py) — если
-    build_pair_features() в src/feature_builder.py вернёт колонки в другом
-    порядке или с другими именами, CatBoost либо упадёт, либо (что хуже)
-    тихо предскажет по неверно сопоставленным фичам. Свериться с Role 1.
     """
     return classifier.predict_proba(features)[:, 1]
 
@@ -178,24 +154,25 @@ def write_submission(matches, predictions, output_path):
 def main():
     start = time.perf_counter()
     args = parse_args()
-    print(f"[info] items_path={args.items_path} matches_path={args.matches_path} output_path={args.output_path}")
+    print(f"[инфо] items_path={args.items_path} matches_path={args.matches_path} output_path={args.output_path}")
 
     items = load_items(args.items_path)
     matches = load_matches(args.matches_path)
-    print(f"[info] loaded items={len(items)} matches={len(matches)} ({time.perf_counter() - start:.1f}s)")
+    print(f"[инфо] загружено товаров={len(items)}, пар={len(matches)} ({time.perf_counter() - start:.1f}с)")
 
     encoder = load_encoder()
     embeddings = build_embeddings(encoder, items)
-    print(f"[info] embeddings ready ({time.perf_counter() - start:.1f}s)")
+    print(f"[инфо] эмбеддинги готовы ({time.perf_counter() - start:.1f}с)")
 
     classifier = load_classifier()
     features = build_features(items, matches, embeddings)
-    print(f"[info] features ready ({time.perf_counter() - start:.1f}s)")
+    print(f"[инфо] признаки готовы ({time.perf_counter() - start:.1f}с)")
 
     predictions = predict(classifier, features)
     write_submission(matches, predictions, args.output_path)
-    print(f"[info] done, total {time.perf_counter() - start:.1f}s")
+    print(f"[инфо] готово, общее время: {time.perf_counter() - start:.1f}с")
 
 
 if __name__ == "__main__":
     main()
+
