@@ -10,6 +10,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import normalize
 
 from src.hard_rule_features import HARD_RULE_FEATURE_ORDER, build_pair_hard_features
+from src.similarity_features import TEXT_SIM_FEATURE_ORDER, build_pair_similarity_features
 from src.text_engine import clean_text
 
 FEATURE_ORDER = [
@@ -18,7 +19,7 @@ FEATURE_ORDER = [
     "category_match",
     "price_diff",
     "price_ratio",
-] + HARD_RULE_FEATURE_ORDER
+] + TEXT_SIM_FEATURE_ORDER + HARD_RULE_FEATURE_ORDER
 
 
 def compute_tfidf_similarity(df: pd.DataFrame, col1: str, col2: str) -> np.ndarray:
@@ -122,8 +123,9 @@ def build_pair_features(df: pd.DataFrame) -> pd.DataFrame:
             "price_ratio",
         ],
     )
+    similarity_features = build_pair_similarity_features(df)
     hard_features = build_pair_hard_features(df)
-    features = pd.concat([base_features, hard_features], axis=1)
+    features = pd.concat([base_features, similarity_features, hard_features], axis=1)
     return features
 
 
