@@ -123,7 +123,7 @@ def build_features(items, matches, embeddings):
     """
     items_indexed = items.set_index("id")
 
-    feature_cols = [c for c in ("name", "brand", "category", "price") if c in items.columns]
+    feature_cols = [c for c in ("name", "attributes", "brand", "category", "price") if c in items.columns]
     left = items_indexed.loc[matches["id1"], feature_cols].reset_index(drop=True)
     right = items_indexed.loc[matches["id2"], feature_cols].reset_index(drop=True)
 
