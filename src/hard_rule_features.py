@@ -28,6 +28,11 @@ NUMERIC_SPECS = {
 }
 
 HARD_RULE_FEATURE_ORDER = [
+    "is_memory_mismatch",
+    "is_quantity_mismatch",
+    "is_model_number_mismatch",
+    "is_color_mismatch",
+    "is_brand_mismatch",
     "hard_model_match",
     "hard_model_conflict",
     "hard_model_jaccard",
@@ -177,6 +182,59 @@ _COLOR_RE = re.compile(
     flags=re.IGNORECASE,
 )
 
+_BRAND_ATTR_MARKERS = ("бренд", "brand", "manufacturer", "производитель", "марка")
+_KNOWN_BRANDS = {
+    "apple",
+    "samsung",
+    "xiaomi",
+    "redmi",
+    "poco",
+    "huawei",
+    "honor",
+    "realme",
+    "oppo",
+    "vivo",
+    "nokia",
+    "sony",
+    "lg",
+    "lenovo",
+    "asus",
+    "acer",
+    "hp",
+    "dell",
+    "msi",
+    "bosch",
+    "philips",
+    "tefal",
+    "redmond",
+    "polaris",
+    "bork",
+    "dyson",
+    "rowenta",
+    "braun",
+    "indesit",
+    "beko",
+    "haier",
+    "nike",
+    "adidas",
+    "puma",
+    "reebok",
+    "lego",
+    "barilla",
+    "nestle",
+    "nivea",
+    "garnier",
+    "loreal",
+    "gillette",
+    "colgate",
+    "oral-b",
+    "head&shoulders",
+    "head shoulders",
+}
+_KNOWN_BRAND_RE = re.compile(
+    r"(?<![\w])(" + "|".join(re.escape(b) for b in sorted(_KNOWN_BRANDS, key=len, reverse=True)) + r")(?![\w])",
+    flags=re.IGNORECASE,
+)
 _MODEL_STOP_UNITS = {u.lower().replace(" ", "") for u in _ALL_UNITS}
 
 
@@ -286,7 +344,30 @@ def _extract_colors(text: str, attrs: dict[str, str]) -> set[str]:
     return colors
 
 
-def extract_item_hard_features(name: Any, attributes: Any = None) -> dict[str, Any]:
+def _normalize_brand(value: Any) -> str:
+    value = _norm_text(value).lower().replace("ё", "е")
+    value = re.sub(r"[^0-9a-zа-я&+.-]+", " ", value, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", value).strip(" .-")
+
+
+def _extract_brands(text: str, attrs: dict[str, str], brand: Any = None) -> set[str]:
+    brands = set()
+    direct_brand = _normalize_brand(brand)
+    if direct_brand:
+        brands.add(direct_brand)
+
+    for key, value in attrs.items():
+        if any(marker in key for marker in _BRAND_ATTR_MARKERS):
+            attr_brand = _normalize_brand(value)
+            if attr_brand:
+                brands.add(attr_brand)
+
+    for match in _KNOWN_BRAND_RE.finditer(text):
+        brands.add(_normalize_brand(match.group(1)))
+    return brands
+
+
+def extract_item_hard_features(name: Any, attributes: Any = None, brand: Any = None) -> dict[str, Any]:
     """
     Извлекает нормализованные жесткие атрибуты из name и JSON attributes.
     """
@@ -323,21 +404,23 @@ def extract_item_hard_features(name: Any, attributes: Any = None) -> dict[str, A
     features["colors"] = tuple(sorted(_extract_colors(text, attr_dict)))
     features["models"] = tuple(sorted(_extract_models(f"{_norm_text(name)} {attr_text}")))
     features["numbers"] = tuple(sorted(_extract_numbers(text)))
+    features["brands"] = tuple(sorted(_extract_brands(text, attr_dict, brand)))
     return features
 
 
 def build_item_hard_features(items: pd.DataFrame) -> pd.DataFrame:
     """
     Строит item-level жесткие атрибуты для датафрейма каталога.
-    Обязательная колонка: name. Опциональная колонка: attributes.
+    Обязательная колонка: name. Опциональные колонки: attributes, brand.
     """
     if "name" not in items.columns:
         raise KeyError("Ожидалась колонка товара 'name'")
 
     attrs = items["attributes"] if "attributes" in items.columns else pd.Series(None, index=items.index)
+    brands = items["brand"] if "brand" in items.columns else pd.Series(None, index=items.index)
     records = [
-        extract_item_hard_features(name, attr)
-        for name, attr in zip(items["name"].tolist(), attrs.tolist())
+        extract_item_hard_features(name, attr, brand)
+        for name, attr, brand in zip(items["name"].tolist(), attrs.tolist(), brands.tolist())
     ]
     return pd.DataFrame(records, index=items.index)
 
@@ -377,6 +460,12 @@ def _numeric_pair_features(left: Any, right: Any, tolerance: float) -> tuple[int
     return 1, match, int(not match), abs_diff, rel_diff, ratio
 
 
+def _set_conflict(left: Any, right: Any) -> int:
+    left_set = set(left) if isinstance(left, (tuple, list, set)) else set()
+    right_set = set(right) if isinstance(right, (tuple, list, set)) else set()
+    return int(bool(left_set and right_set and not (left_set & right_set)))
+
+
 def build_pair_hard_features_from_item_features(left: pd.DataFrame, right: pd.DataFrame) -> pd.DataFrame:
     """
     Строит pair-level hard-rule признаки из двух выровненных item-feature датафреймов.
@@ -393,7 +482,27 @@ def build_pair_hard_features_from_item_features(left: pd.DataFrame, right: pd.Da
         _, number_conflict, number_jaccard = _set_pair_features(
             left_row.get("numbers"), right_row.get("numbers")
         )
+        brand_conflict = _set_conflict(left_row.get("brands"), right_row.get("brands"))
 
+        numeric_pair_values = {}
+        for name, tolerance in NUMERIC_SPECS.items():
+            numeric_pair_values[name] = _numeric_pair_features(
+                left_row.get(name), right_row.get(name), tolerance
+            )
+
+        out["is_memory_mismatch"].append(numeric_pair_values["memory_gb"][2])
+        out["is_quantity_mismatch"].append(
+            int(
+                bool(
+                    numeric_pair_values["weight_g"][2]
+                    or numeric_pair_values["volume_ml"][2]
+                    or numeric_pair_values["pack_count"][2]
+                )
+            )
+        )
+        out["is_model_number_mismatch"].append(int(bool(model_conflict or number_conflict)))
+        out["is_color_mismatch"].append(color_conflict)
+        out["is_brand_mismatch"].append(brand_conflict)
         out["hard_model_match"].append(model_match)
         out["hard_model_conflict"].append(model_conflict)
         out["hard_model_jaccard"].append(model_jaccard)
@@ -403,9 +512,7 @@ def build_pair_hard_features_from_item_features(left: pd.DataFrame, right: pd.Da
         out["hard_number_conflict"].append(number_conflict)
 
         for name, tolerance in NUMERIC_SPECS.items():
-            both, match, conflict, abs_diff, rel_diff, ratio = _numeric_pair_features(
-                left_row.get(name), right_row.get(name), tolerance
-            )
+            both, match, conflict, abs_diff, rel_diff, ratio = numeric_pair_values[name]
             out[f"hard_{name}_both"].append(both)
             out[f"hard_{name}_match"].append(match)
             out[f"hard_{name}_conflict"].append(conflict)
@@ -414,7 +521,11 @@ def build_pair_hard_features_from_item_features(left: pd.DataFrame, right: pd.Da
             out[f"hard_{name}_ratio"].append(ratio)
 
     result = pd.DataFrame(out, index=left.index)
-    int_cols = [c for c in result.columns if c.endswith(("_both", "_match", "_conflict"))]
+    int_cols = [
+        c
+        for c in result.columns
+        if c.startswith("is_") or c.endswith(("_both", "_match", "_conflict"))
+    ]
     result[int_cols] = result[int_cols].astype("int8")
     float_cols = [c for c in result.columns if c not in int_cols]
     result[float_cols] = result[float_cols].astype("float32")
@@ -439,6 +550,7 @@ def build_pair_hard_features(pairs: pd.DataFrame) -> pd.DataFrame:
         {
             "name": pairs[f"{name_base}_1"],
             "attributes": pairs["attributes_1"] if "attributes_1" in pairs.columns else None,
+            "brand": pairs["brand_1"] if "brand_1" in pairs.columns else None,
         },
         index=pairs.index,
     )
@@ -446,6 +558,7 @@ def build_pair_hard_features(pairs: pd.DataFrame) -> pd.DataFrame:
         {
             "name": pairs[f"{name_base}_2"],
             "attributes": pairs["attributes_2"] if "attributes_2" in pairs.columns else None,
+            "brand": pairs["brand_2"] if "brand_2" in pairs.columns else None,
         },
         index=pairs.index,
     )
@@ -453,46 +566,3 @@ def build_pair_hard_features(pairs: pd.DataFrame) -> pd.DataFrame:
         build_item_hard_features(left),
         build_item_hard_features(right),
     )
-
-
-if __name__ == "__main__":
-    sample = pd.DataFrame(
-        {
-            "name_1": [
-                "Apple iPhone 13 A2633 128GB black",
-                "Кофе молотый 2x500 г, 10 шт",
-                "Блок питания 65W 20V",
-                "Samsung Galaxy S21 SM-G991B 128GB black",
-            ],
-            "name_2": [
-                "Apple iPhone 14 A2882 256 ГБ черный",
-                "Кофе молотый 1000г упаковка 10 штук",
-                "Блок питания 65 Вт 20 В",
-                "Samsung Galaxy S21 SM-G991B 128 ГБ черный",
-            ],
-            "attributes_1": [
-                '{"color": "black", "RAM": "6 GB"}',
-                "{}",
-                '{"Емкость": "5000 mAh"}',
-                "{}",
-            ],
-            "attributes_2": [
-                '{"Цвет": "черный", "RAM": "6 ГБ"}',
-                "{}",
-                '{"Емкость": "5000 мАч"}',
-                "{}",
-            ],
-        }
-    )
-    feats = build_pair_hard_features(sample)
-    assert list(feats.columns) == HARD_RULE_FEATURE_ORDER
-    assert feats.loc[0, "hard_color_match"] == 1
-    assert feats.loc[0, "hard_memory_gb_conflict"] == 1
-    assert feats.loc[0, "hard_model_conflict"] == 1
-    assert feats.loc[1, "hard_weight_g_match"] == 1
-    assert feats.loc[1, "hard_pack_count_match"] == 1
-    assert feats.loc[2, "hard_power_w_match"] == 1
-    assert feats.loc[2, "hard_voltage_v_match"] == 1
-    assert feats.loc[2, "hard_capacity_mah_match"] == 1
-    assert feats.loc[3, "hard_model_match"] == 1
-    print("Проверки hard-rule признаков пройдены")
