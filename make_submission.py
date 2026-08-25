@@ -22,7 +22,7 @@ def make_archive():
     with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(submission_dir):
             for file in files:
-                if file.endswith((".gitkeep", ".cbm", ".csv", ".pyc", ".tmp")):
+                if file.endswith((".gitkeep", ".onnx", ".csv", ".pyc", ".tmp")):
                     continue
                 if "__pycache__" in root:
                     continue
