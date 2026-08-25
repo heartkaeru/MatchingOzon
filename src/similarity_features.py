@@ -10,7 +10,17 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from rapidfuzz import fuzz
+
+try:
+    from rapidfuzz import fuzz
+
+    def _lev_ratio(s1: str, s2: str) -> float:
+        return fuzz.ratio(s1, s2) / 100.0
+except ImportError:
+    import difflib
+
+    def _lev_ratio(s1: str, s2: str) -> float:
+        return difflib.SequenceMatcher(None, s1, s2).ratio()
 
 
 TEXT_SIM_FEATURE_ORDER = [
@@ -123,7 +133,7 @@ def _name_similarity(left: Any, right: Any) -> dict[str, Any]:
     return {
         "name_word_jaccard": _jaccard(left_tokens, right_tokens),
         "name_char_3gram_jaccard": _jaccard(left_ngrams, right_ngrams),
-        "name_levenshtein_ratio": fuzz.ratio(left_text, right_text) / 100.0,
+        "name_levenshtein_ratio": _lev_ratio(left_text, right_text),
         "name_word_overlap_1_to_2": _overlap(left_tokens, right_tokens),
         "name_word_overlap_2_to_1": _overlap(right_tokens, left_tokens),
         "name_first_word_match": first_word_match,
