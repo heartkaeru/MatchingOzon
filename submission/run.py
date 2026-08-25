@@ -23,19 +23,15 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from catboost import CatBoostClassifier
 
 # ВАЖНО (упаковка сабмита): в архив соревнования уходит только содержимое
-# папки submission/ (metadata.json, run.py, weights/) — src/ лежит вне
-# submission/ в репозитории и сам по себе в архив НЕ попадёт.
-# make_submission.py должен копировать src/ ВНУТРЬ submission/ (т.е. в
-# архиве run.py и src/ оказываются рядом, в одной директории) —
-# тогда этот sys.path.insert (директория самого run.py) найдёт src
-# и на закрытом стенде, и локально при запуске из submission/.
+# Поиск модулей src как в submission/, так и в корне проекта
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.encoder import CatalogEncoder
 from src.feature_builder import build_pair_features
 
 WEIGHTS_DIR = Path(__file__).parent / "weights"
@@ -69,78 +65,76 @@ def load_matches(matches_path):
     return pd.read_parquet(matches_path)
 
 
-def load_encoder():
-    # CatalogEncoder(model_path=...) грузит веса сам в __init__ —
-    # путь передаём явно, а не полагаемся на дефолт (на закрытом стенде
-    # интернета нет, так что model_path обязателен).
-    return CatalogEncoder(model_path=WEIGHTS_DIR / "encoder_fp16.onnx")
-
-
-def load_classifier():
-    classifier = CatBoostClassifier()
-    classifier.load_model(str(WEIGHTS_DIR / "catboost_model.cbm"))
-    return classifier
-
-
-def build_item_text(row):
+def load_classifiers():
     """
-    Собирает текст для энкодера из name + category + распакованных attributes.
+    Загружает ансамбль моделей CatBoost со всех доступных фолдов.
+    Если фолдовых моделей нет, загружает одиночную catboost_model.cbm.
     """
-    parts = [str(row["name"])]
-    category = row.get("category")
-    if pd.notna(category):
-        parts.append(str(category))
+    fold_models = sorted(list(WEIGHTS_DIR.glob("catboost_fold_*.cbm")))
+    classifiers = []
+    
+    if fold_models:
+        print(f"[инфо] Загрузка ансамбля из {len(fold_models)} фолдовых моделей...")
+        for model_path in fold_models:
+            clf = CatBoostClassifier()
+            clf.load_model(str(model_path))
+            classifiers.append(clf)
+    else:
+        single_model_path = WEIGHTS_DIR / "catboost_model.cbm"
+        if single_model_path.exists():
+            print(f"[инфо] Загрузка модели {single_model_path}...")
+            clf = CatBoostClassifier()
+            clf.load_model(str(single_model_path))
+            classifiers.append(clf)
+        else:
+            raise FileNotFoundError(f"Файлы весов CatBoost не найдены в {WEIGHTS_DIR}")
+            
+    return classifiers
 
-    attrs_raw = row.get("attributes")
-    if isinstance(attrs_raw, str) and attrs_raw.strip():
-        try:
-            attrs = json.loads(attrs_raw)
-            if isinstance(attrs, dict):
-                parts.extend(f"{k}: {v}" for k, v in attrs.items())
-            else:
-                parts.append(str(attrs))
-        except (TypeError, ValueError):
-            parts.append(attrs_raw)
 
-    return " ".join(parts)
-
-
-def build_embeddings(encoder, items):
+def build_features(items, matches, batch_size=50000):
     """
-    Прогоняет CatalogEncoder.encode() по каталогу и возвращает
-    {id: embedding} для последующего склеивания с товарами в парах.
-    """
-    item_ids = items["id"].tolist()
-    texts = items.apply(build_item_text, axis=1).tolist()
-    vectors = encoder.encode(texts)
-    return dict(zip(item_ids, vectors))
-
-
-def build_features(items, matches, embeddings):
-    """
-    Собирает парный DataFrame с суффиксами _1/_2 и одним батчевым вызовом
-    build_pair_features() получает матрицу фичей (см. src/feature_builder.py).
+    Собирает парный DataFrame с суффиксами _1/_2 и батчево вычисляет
+    матрицу признаков через build_pair_features() (см. src/feature_builder.py).
     """
     items_indexed = items.set_index("id")
+    feature_cols = [c for c in ("name", "title", "attributes", "brand", "category", "price") if c in items.columns]
 
-    feature_cols = [c for c in ("name", "brand", "category", "price") if c in items.columns]
-    left = items_indexed.loc[matches["id1"], feature_cols].reset_index(drop=True)
-    right = items_indexed.loc[matches["id2"], feature_cols].reset_index(drop=True)
+    total_pairs = len(matches)
+    n_batches = (total_pairs + batch_size - 1) // batch_size
+    feature_dfs = []
 
-    pairs = pd.concat([left.add_suffix("_1"), right.add_suffix("_2")], axis=1)
-    return build_pair_features(pairs)
+    for b_idx in range(n_batches):
+        b_start = b_idx * batch_size
+        b_end = min(b_start + batch_size, total_pairs)
+        b_matches = matches.iloc[b_start:b_end]
+
+        left = items_indexed.loc[b_matches["id1"].values, feature_cols].reset_index(drop=True)
+        right = items_indexed.loc[b_matches["id2"].values, feature_cols].reset_index(drop=True)
+
+        pair_df = pd.concat([left.add_suffix("_1"), right.add_suffix("_2")], axis=1)
+        batch_feats = build_pair_features(pair_df)
+        feature_dfs.append(batch_feats)
+
+    return pd.concat(feature_dfs, ignore_index=True)
 
 
-def predict(classifier, features):
+def predict(classifiers, features):
     """
-    Возвращает непрерывный скор (вероятность класса "дубликат"), НЕ 0/1 —
-    метрика соревнования Macro PR-AUC (average_precision_score) требует
-    ранжирующего скора, а не бинарной метки.
+    Возвращает усредненный непрерывный скор (вероятность класса 'дубликат')
+    по ансамблю моделей для метрики Macro PR-AUC.
     """
-    return classifier.predict_proba(features)[:, 1]
+    preds = np.zeros(len(features), dtype=np.float32)
+    for clf in classifiers:
+        preds += clf.predict_proba(features)[:, 1] / len(classifiers)
+    return preds
 
 
 def write_submission(matches, predictions, output_path):
+    output_dir = Path(output_path).parent
+    if output_dir and not output_dir.exists():
+        output_dir.mkdir(parents=True, exist_ok=True)
+
     submission = pd.DataFrame(
         {
             "id1": matches["id1"].values,
@@ -160,19 +154,16 @@ def main():
     matches = load_matches(args.matches_path)
     print(f"[инфо] загружено товаров={len(items)}, пар={len(matches)} ({time.perf_counter() - start:.1f}с)")
 
-    encoder = load_encoder()
-    embeddings = build_embeddings(encoder, items)
-    print(f"[инфо] эмбеддинги готовы ({time.perf_counter() - start:.1f}с)")
+    classifiers = load_classifiers()
+    features = build_features(items, matches)
+    print(f"[инфо] признаки готовы, размер: {features.shape} ({time.perf_counter() - start:.1f}с)")
 
-    classifier = load_classifier()
-    features = build_features(items, matches, embeddings)
-    print(f"[инфо] признаки готовы ({time.perf_counter() - start:.1f}с)")
-
-    predictions = predict(classifier, features)
+    predictions = predict(classifiers, features)
     write_submission(matches, predictions, args.output_path)
-    print(f"[инфо] готово, общее время: {time.perf_counter() - start:.1f}с")
+    print(f"[инфо] сабмит записан в {args.output_path}, общее время: {time.perf_counter() - start:.1f}с")
 
 
 if __name__ == "__main__":
     main()
+
 
