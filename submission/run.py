@@ -24,8 +24,8 @@ import time
 from pathlib import Path
 
 import numpy as np
+import onnxruntime as ort
 import pandas as pd
-from catboost import CatBoostClassifier
 
 # ВАЖНО (упаковка сабмита): в архив соревнования уходит только содержимое
 # Поиск модулей src как в submission/, так и в корне проекта
@@ -67,29 +67,34 @@ def load_matches(matches_path):
 
 def load_classifiers():
     """
-    Загружает ансамбль моделей CatBoost со всех доступных фолдов.
-    Если фолдовых моделей нет, загружает одиночную catboost_model.cbm.
+    Загружает ансамбль ONNX-моделей со всех доступных фолдов.
+    Использует onnxruntime (предустановлен в базовом докере).
     """
-    fold_models = sorted(list(WEIGHTS_DIR.glob("catboost_fold_*.cbm")))
-    classifiers = []
-    
+    opts = ort.SessionOptions()
+    opts.inter_op_num_threads = 4
+    opts.intra_op_num_threads = 4
+    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+    providers = ["CPUExecutionProvider"]
+
+    fold_models = sorted(list(WEIGHTS_DIR.glob("catboost_fold_*.onnx")))
+    sessions = []
+
     if fold_models:
-        print(f"[инфо] Загрузка ансамбля из {len(fold_models)} фолдовых моделей...")
+        print(f"[инфо] Загрузка ансамбля из {len(fold_models)} ONNX моделей...")
         for model_path in fold_models:
-            clf = CatBoostClassifier()
-            clf.load_model(str(model_path))
-            classifiers.append(clf)
+            sess = ort.InferenceSession(str(model_path), sess_options=opts, providers=providers)
+            sessions.append(sess)
     else:
-        single_model_path = WEIGHTS_DIR / "catboost_model.cbm"
+        single_model_path = WEIGHTS_DIR / "catboost_model.onnx"
         if single_model_path.exists():
             print(f"[инфо] Загрузка модели {single_model_path}...")
-            clf = CatBoostClassifier()
-            clf.load_model(str(single_model_path))
-            classifiers.append(clf)
+            sess = ort.InferenceSession(str(single_model_path), sess_options=opts, providers=providers)
+            sessions.append(sess)
         else:
-            raise FileNotFoundError(f"Файлы весов CatBoost не найдены в {WEIGHTS_DIR}")
-            
-    return classifiers
+            raise FileNotFoundError(f"Файлы ONNX весов не найдены в {WEIGHTS_DIR}")
+
+    return sessions
 
 
 def build_features(items, matches, batch_size=50000):
@@ -119,14 +124,24 @@ def build_features(items, matches, batch_size=50000):
     return pd.concat(feature_dfs, ignore_index=True)
 
 
-def predict(classifiers, features):
+def predict(sessions, features):
     """
     Возвращает усредненный непрерывный скор (вероятность класса 'дубликат')
-    по ансамблю моделей для метрики Macro PR-AUC.
+    по ансамблю ONNX моделей для метрики Macro PR-AUC.
     """
+    X = features.values.astype(np.float32)
     preds = np.zeros(len(features), dtype=np.float32)
-    for clf in classifiers:
-        preds += clf.predict_proba(features)[:, 1] / len(classifiers)
+
+    for sess in sessions:
+        input_name = sess.get_inputs()[0].name
+        outputs = sess.run(None, {input_name: X})
+        probas = outputs[1]
+        if isinstance(probas, list):
+            fold_preds = np.fromiter((row[1] for row in probas), dtype=np.float32, count=len(probas))
+        else:
+            fold_preds = probas[:, 1].astype(np.float32)
+        preds += fold_preds / len(sessions)
+
     return preds
 
 

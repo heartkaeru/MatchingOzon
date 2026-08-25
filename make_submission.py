@@ -22,10 +22,12 @@ def make_archive():
     with zipfile.ZipFile(zip_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(submission_dir):
             for file in files:
-                if file.endswith(".gitkeep"):
+                if file.endswith((".gitkeep", ".cbm", ".csv", ".pyc", ".tmp")):
+                    continue
+                if "__pycache__" in root:
                     continue
                 file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, os.path.dirname(submission_dir))
+                arcname = os.path.relpath(file_path, submission_dir)
                 zipf.write(file_path, arcname)
     print("Архив успешно создан и готов к отправке!")
 
