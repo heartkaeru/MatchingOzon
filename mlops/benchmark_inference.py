@@ -1,7 +1,19 @@
-"""Бенчмарк инференса: замер latency, throughput и потребления памяти (GPU/RAM)."""
-
+"""
+Бенчмарк инференса: замер latency, throughput и потребления памяти (GPU/RAM) для пайплайна матчинга.
+"""
 import argparse
+import os
+import sys
 import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+# Добавление корня репозитория в sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from submission.run import build_features, load_classifiers, predict
 
 
 def parse_args():
@@ -9,113 +21,109 @@ def parse_args():
         description="Бенчмарк инференса модели: latency / throughput / память."
     )
     parser.add_argument(
-        "--data-path",
+        "--items_path",
         type=str,
-        required=True,
-        help="Путь к данным для инференса",
+        default="data/raw/items_human.parquet",
+        help="Путь к каталогу товаров",
     )
     parser.add_argument(
-        "--batch-size",
+        "--matches_path",
+        type=str,
+        default="data/processed/matches_folds.parquet",
+        help="Путь к парам товаров",
+    )
+    parser.add_argument(
+        "--sample_n",
         type=int,
-        default=32,
-        help="Размер батча (по умолчанию: 32)",
+        default=5000,
+        help="Количество пар для замера бенчмарка",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        choices=["cpu", "cuda"],
-        default=None,
-        help="Устройство инференса (по умолчанию: автоопределение)",
+        "--batch_size",
+        type=int,
+        default=50000,
+        help="Размер батча для инференса",
     )
     return parser.parse_args()
 
 
-def resolve_device(requested):
-    if requested is not None:
-        return requested
-    try:
-        import torch
-
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    except ImportError:
-        print("[предупреждение] torch не установлен, используется cpu")
-        return "cpu"
-
-
-def load_data(data_path):
-    # TODO: загрузка данных для инференса из data_path
-    raise NotImplementedError
-
-
-def run_inference(model, batch, device):
-    # TODO: прогон одного батча через модель на device
-    raise NotImplementedError
-
-
-def measure_latency(model, data, device, batch_size, n_warmup=5, n_iters=50):
-    """Среднее время инференса одного батча, сек."""
-    # TODO: n_warmup прогревочных итераций, затем замер n_iters через time.perf_counter()
-    raise NotImplementedError
-
-
-def measure_throughput(model, data, device, batch_size):
-    """Пропускная способность, примеров/сек."""
-    # TODO: общее число обработанных примеров / суммарное время
-    raise NotImplementedError
-
-
-def report_memory(device):
-    """Пиковое потребление памяти: GPU (torch.cuda) и RAM (psutil), МБ."""
-    stats = {"gpu_peak_mb": None, "ram_peak_mb": None}
-    try:
-        import torch
-
-        if device == "cuda" and torch.cuda.is_available():
-            torch.cuda.synchronize()
-            stats["gpu_peak_mb"] = torch.cuda.max_memory_allocated() / 1024**2
-    except ImportError:
-        pass
+def report_memory():
+    """Пиковое потребление RAM процесса, МБ."""
     try:
         import psutil
-
-        stats["ram_peak_mb"] = psutil.Process().memory_info().rss / 1024**2
+        process = psutil.Process()
+        return process.memory_info().rss / (1024 * 1024)
     except ImportError:
-        pass
-    return stats
+        return 0.0
 
 
 def print_report(results):
-    print("\n===== Отчет о бенчмарке =====")
+    print("\n" + "=" * 50)
+    print("           ОТЧЕТ О БЕНЧМАРКЕ ИНФЕРЕНСА")
+    print("=" * 50)
     for key, value in results.items():
-        formatted = f"{value:.2f}" if isinstance(value, float) else str(value)
-        print(f"{key:>15}: {formatted}")
-    print("=============================")
+        if isinstance(value, float):
+            formatted = f"{value:.2f}"
+        else:
+            formatted = str(value)
+        print(f" {key:<30}: {formatted}")
+    print("=" * 50)
 
 
 def main():
     start = time.perf_counter()
     args = parse_args()
-    device = resolve_device(args.device)
-    print(f"[инфо] device={device}, batch_size={args.batch_size}, data_path={args.data_path}")
+    print(f"[инфо] Запуск бенчмарка на сэмпле из {args.sample_n} пар...")
+
+    # 1. Загрузка каталога и пар
+    t0 = time.perf_counter()
+    items = pd.read_parquet(args.items_path)
+    matches = pd.read_parquet(args.matches_path).head(args.sample_n)[["id1", "id2"]]
+    load_time = time.perf_counter() - t0
+
+    # 2. Загрузка моделей
+    t0 = time.perf_counter()
+    classifiers = load_classifiers()
+    model_load_time = time.perf_counter() - t0
+
+    # 3. Извлечение признаков (Feature Extraction)
+    t0 = time.perf_counter()
+    features = build_features(items, matches, batch_size=args.batch_size)
+    fe_time = time.perf_counter() - t0
+    fe_throughput = len(matches) / max(fe_time, 0.001)
+
+    # 4. Предсказание моделей (Inference)
+    t0 = time.perf_counter()
+    preds = predict(classifiers, features)
+    pred_time = time.perf_counter() - t0
+    pred_throughput = len(matches) / max(pred_time, 0.001)
+
+    total_time = time.perf_counter() - start
+    total_throughput = len(matches) / max(total_time - load_time, 0.001)
+
+    # Оценка времени для public (115k пар) и private (275k пар)
+    est_public_min = (115000 / max(total_throughput, 1)) / 60
+    est_private_min = (275000 / max(total_throughput, 1)) / 60
 
     results = {
-        "device": device,
-        "batch_size": args.batch_size,
-        "latency_ms": None,
-        "throughput_sps": None,
-        **report_memory(device),
-        "total_time_s": time.perf_counter() - start,
+        "Количество пар": len(matches),
+        "Моделей в ансамбле": len(classifiers),
+        "Время загрузки данных (сек)": load_time,
+        "Время загрузки моделей (сек)": model_load_time,
+        "Время генерации фичей (сек)": fe_time,
+        "Скорость фичей (пар/сек)": fe_throughput,
+        "Время предикта моделей (сек)": pred_time,
+        "Скорость предикта (пар/сек)": pred_throughput,
+        "Общая скорость пайплайна (пар/сек)": total_throughput,
+        "Потребление RAM (МБ)": report_memory(),
+        "Прогноз Public 115k (мин, лимит 6м)": est_public_min,
+        "Прогноз Private 275k (мин, лимит 13м)": est_private_min,
     }
-
-    # TODO: полный пайплайн бенчмарка:
-    #   data = load_data(args.data_path)
-    #   model = <загрузка модели>
-    #   results["latency_ms"] = measure_latency(model, data, device, args.batch_size) * 1000
-    #   results["throughput_sps"] = measure_throughput(model, data, device, args.batch_size)
 
     print_report(results)
 
 
 if __name__ == "__main__":
     main()
+
 
