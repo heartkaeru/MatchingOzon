@@ -6,7 +6,13 @@ on:
       - main
     paths:
       - 'Dockerfile'
+      - 'requirements.txt'
       - '.github/workflows/docker.yml'
+      - 'src/**'
+      - 'submission/**'
+      - 'train/**'
+      - 'mlops/**'
+      - 'make_submission.py'
   workflow_dispatch:
 
 jobs:
