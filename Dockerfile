@@ -8,8 +8,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN python -m pip install --upgrade pip && \
-    python -m pip install -r requirements.txt
+RUN python --version && python -m pip --version && \
+    if [ -s requirements.txt ] && grep -vE '^\s*(#|$)' requirements.txt; then \
+        python -m pip install --no-cache-dir -r requirements.txt; \
+    fi
 
 COPY src ./src
 COPY submission ./submission
