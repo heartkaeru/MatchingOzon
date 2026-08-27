@@ -41,16 +41,23 @@ def parse_args():
     parser = argparse.ArgumentParser(description="CLI инференса для MatchingOzon")
     parser.add_argument(
         "--items_path",
+        "--items-path",
+        dest="items_path",
         required=True,
         help="Путь к каталогу товаров (parquet), например items.parquet",
     )
     parser.add_argument(
         "--matches_path",
+        "--matches-path",
+        dest="matches_path",
         required=True,
         help="Путь к парам кандидатов (parquet), например matches.parquet",
     )
     parser.add_argument(
+        "--output_path",
         "--output-path",
+        "-o",
+        dest="output_path",
         required=True,
         help="Путь для сохранения предсказаний, например submit.csv",
     )
