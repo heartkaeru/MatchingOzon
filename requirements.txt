@@ -1,5 +1,5 @@
 # The competition baseline image already contains the runtime stack.
 # Keep this file empty to avoid pip resolving incompatible wheels in CI.
 
-
-
+catboost
+rapidfuzz
