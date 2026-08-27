@@ -15,5 +15,5 @@ COPY . /app
 
 WORKDIR /app/submission
 
-ENTRYPOINT ["python", "-u", "run.py"]
+CMD ["python", "-u", "run.py"]
 

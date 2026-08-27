@@ -61,7 +61,21 @@ def parse_args():
         required=True,
         help="Путь для сохранения предсказаний, например submit.csv",
     )
-    return parser.parse_args()
+
+    # Если платформа передала 'python -u run.py' в качестве аргументов (дублирование ENTRYPOINT)
+    raw_args = sys.argv[1:]
+    clean_args = []
+    skip_prefixes = {"python", "python3", "-u"}
+    i = 0
+    while i < len(raw_args):
+        arg = raw_args[i]
+        if arg in skip_prefixes or arg.endswith("run.py"):
+            i += 1
+            continue
+        clean_args.append(arg)
+        i += 1
+
+    return parser.parse_args(clean_args)
 
 
 def load_items(items_path):
