@@ -39,5 +39,5 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            kaerru/matching-ozon:1.0
+            kaerru/matching-ozon:1.1
             kaerru/matching-ozon:latest

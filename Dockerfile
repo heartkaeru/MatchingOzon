@@ -7,8 +7,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_BREAK_SYSTEM_PACKAGES=1
 
-RUN python -m pip install --no-cache-dir --no-deps catboost rapidfuzz six || \
-    python3 -m pip install --no-cache-dir --no-deps catboost rapidfuzz six
+RUN python -m pip install --no-cache-dir --no-deps catboost rapidfuzz six && \
+    python -c "import catboost, rapidfuzz; print('Verified imports:', catboost.__version__, rapidfuzz.__version__)"
 
 WORKDIR /app
 COPY . /app
